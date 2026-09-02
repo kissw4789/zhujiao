@@ -1,8 +1,49 @@
 {
+  "version": 2,
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "source": "/api/home",
+      "destination": "/api/home.js"
+    },
+    {
+      "source": "/api/students",
+      "destination": "/api/students.js"
+    },
+    {
+      "source": "/api/classes",
+      "destination": "/api/classes.js"
+    },
+    {
+      "source": "/api/schedule",
+      "destination": "/api/schedule.js"
+    },
+    {
+      "source": "/api/outlines",
+      "destination": "/api/outlines.js"
+    },
+    {
+      "source": "/api/enrollments",
+      "destination": "/api/enrollments.js"
+    },
+    {
+      "source": "/api/families",
+      "destination": "/api/families.js"
+    },
+    {
+      "source": "/api/state",
+      "destination": "/api/state.js"
+    },
+    {
+      "source": "/api/student",
+      "destination": "/api/student.js"
+    },
+    {
+      "source": "/api/leave/list",
+      "destination": "/api/leave/list.js"
+    },
+    {
+      "source": "/api/leave/record",
+      "destination": "/api/leave/record.js"
     }
   ]
 }
