@@ -1,4 +1,3 @@
-// Vercel Serverless 全量 API 路由与数据分发入口
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -25,11 +24,6 @@ function studentStatus(es, now) {
   if (es.some(e => enrStatus(e, now) === '在读')) return '在读';
   if (es.some(e => enrStatus(e, now) === '待开课')) return '待开课';
   return '已结课';
-}
-function termOrder(label) {
-  if (!/^\d{4}[春夏秋冬]$/.test(label || '')) return -1;
-  const se = { '春': 0, '暑': 1, '秋': 2, '寒': 3 };
-  return Number(label.slice(0, 4)) * 10 + se[label.slice(4)];
 }
 function normalizeTeacher(v) {
   const TEACHER_ALIASES = { '飞飞': '王易飞', '温温': '温佳炜', '小明': '小明老师', '小明老师': '小明老师', '小天': '陈世崇', '小树': '束亚成', '金金': '刘金鑫', '晓晓': '张梦晓' };
@@ -66,16 +60,6 @@ function send(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-function parseBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk.toString(); });
-    req.on('end', () => {
-      try { resolve(JSON.parse(body || '{}')); } catch (e) { resolve({}); }
-    });
-  });
-}
-
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.statusCode = 200;
@@ -86,8 +70,8 @@ module.exports = async (req, res) => {
   }
 
   const u = url.parse(req.url, true);
-  // 规范化路径：去除末尾斜杠，并兼容以 /api/ 开头或无 /api/ 的情况
   let p = u.pathname || '/';
+  if (p.endsWith('.js')) p = p.slice(0, -3);
   if (!p.startsWith('/api')) p = '/api' + (p.startsWith('/') ? p : '/' + p);
   p = p.replace(/\/+$/, '');
   const now = today();
@@ -162,35 +146,20 @@ module.exports = async (req, res) => {
     return send(res, 200, state);
   }
 
-  if (p === '/api/oplog') {
-    return send(res, 200, state.opLog || []);
-  }
-
-  if (p === '/api/inbox') {
-    return send(res, 200, { 待处理: [], 台账: state.inboxLog || [] });
-  }
-
-  if (p === '/api/reports') {
-    return send(res, 200, []);
-  }
-
-  if (p === '/api/sync/status') {
-    return send(res, 200, { running: false, stage: '正常', startedAt: '', finishedAt: '', ok: true, error: '', report: null });
-  }
-
   if (p === '/api/classes') {
     const map = {};
     enrollments.forEach(e => {
       if (e.作废 === true || !e.班级) return;
       const c = (map[e.班级] = map[e.班级] || { 期: e.期, 学期: e.学期 || '', 班级: e.班级, 学科: e.学科 || normalizeSubject(e.班级), 老师: e.老师, 校区: e.校区, 开课: e.开课, 结课: e.结课, 在班: [], 退出: [], 待确认: [] });
       const st = students.find(s => s.id === (e.studentId || e.id));
-      if (st) c.在班.push({ id: st.id, 姓名: st.姓名, 年级: st.年级, 电话: st.电话, familyId: st.familyId });
+      if (st) c.enrolledList = c.enrolledList || [];
+      if (st) c.enrolledList.push({ id: st.id, 姓名: st.姓名, 年级: st.年级, 电话: st.电话, familyId: st.familyId });
     });
 
     const rows = schedule.map(r => {
       const isRent = String(r.课程 || '').includes('教室租用') || r.来源 === '教室租用';
       const c = map[r.班级名称] || map[r.课程] || {};
-      const inClass = c.在班 || (r.在班 && r.enrolledList) || r.在班 || [];
+      const inClass = c.enrolledList || r.enrolledList || (r.在班 && r.在班.length ? r.在班 : []);
       return {
         来源: isRent ? '教室租用' : '课表',
         班号: r.班号,
@@ -221,27 +190,5 @@ module.exports = async (req, res) => {
     return send(res, 200, rows);
   }
 
-  if (p === '/api/student') {
-    const st = students.find(x => x.id === u.query.id);
-    if (!st) return send(res, 404, { ok: false, 错误: '没有这个学员' });
-    const es0 = enrById[st.id] || [];
-    const es = es0.map(e => ({ ...e, 状态: enrStatus(e, now) }));
-    const family = familiesById[st.familyId] || null;
-    return send(res, 200, { 基本: { ...st, 状态: studentStatus(es0, now) }, 报名: es, 订单: [], 累计缴费: 0, 家庭: family, 同家庭: [] });
-  }
-
-  if (p === '/api/leave/list') {
-    return send(res, 200, { ok: true, leaves: state.leaves || [] });
-  }
-
-  if (req.method === 'POST' && p === '/api/leave/record') {
-    const b = await parseBody(req);
-    state.leaves = state.leaves || [];
-    const lid = 'L' + String(state.leaves.length + 1).padStart(4, '0');
-    const newL = { lid, studentId: b.studentId || '', 姓名: b.姓名, 班级: b.班级, 日期: b.日期, 原因: b.原因, 折算金额: b.折算金额 || 0, 创建时间: new Date().toISOString().slice(0, 16).replace('T', ' ') };
-    state.leaves.unshift(newL);
-    return send(res, 200, { ok: true, lid });
-  }
-
-  return send(res, 404, { ok: false, 错误: 'Not found' });
+  return send(res, 404, { ok: false, path: p, 错误: 'Not found' });
 };
