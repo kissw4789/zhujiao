@@ -86,7 +86,10 @@ module.exports = async (req, res) => {
   }
 
   const u = url.parse(req.url, true);
-  const p = u.pathname;
+  // 规范化路径：去除末尾斜杠，并兼容以 /api/ 开头或无 /api/ 的情况
+  let p = u.pathname || '/';
+  if (!p.startsWith('/api')) p = '/api' + (p.startsWith('/') ? p : '/' + p);
+  p = p.replace(/\/+$/, '');
   const now = today();
 
   let enrById = {};
