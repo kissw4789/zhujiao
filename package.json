@@ -1,0 +1,10 @@
+{
+  "name": "zhujiao-assistant",
+  "version": "1.0.0",
+  "description": "苏E好学 助教工作台",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js"
+  },
+  "dependencies": {}
+}
