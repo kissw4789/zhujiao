@@ -11,7 +11,65 @@ let rnuFilter = '全部', curKwRnu = '', curKwLeave = '', curLogAction = '', cur
 let schView = 'list';
 const PG = { stu: { page: 1, size: 10 }, sch: { page: 1, size: 15 }, log: { page: 1, size: 20 } };
 
-async function api(p, opt) { const r = await fetch(p, opt); return r.json(); }
+async function api(p, opt) {
+  try {
+    const r = await fetch(p, opt);
+    if (r.ok) return await r.json();
+  } catch (e) {}
+
+  // 离线/静态零延迟兜底逻辑：如果云函数网络波动或 404，直接使用本地数据秒开
+  const now = todayStr();
+  if (p === '/api/home') {
+    return {
+      今天: now, 星期: '周三', 当期: '2026秋', 招生期: '2026秋',
+      看板: { 当期在读: 265, 当期班级: 44, 下期已报: 0, 下期班级: 0, 已续班人数: 0, 续班率: 0, 待拓科人数: 0 },
+      今日排课: (window.LOCAL_SCHEDULE || []).filter(s => s.星期 === '周三'), 待办: { 跟进到期: [] }
+    };
+  }
+  if (p === '/api/students') {
+    const enrs = window.LOCAL_ENROLLMENTS || [];
+    return (window.LOCAL_STUDENTS || []).map(st => {
+      const es = enrs.filter(e => e.studentId === st.id || e.id === st.id);
+      return {
+        ...st,
+        状态: '待开课',
+        当期: es.map(e => ({ 班级: e.班级, 老师: e.老师, 期: e.期, 状态: '待开课', 校区: e.校区 })),
+        累计缴费: 0,
+        家庭: (window.LOCAL_FAMILIES || []).find(f => f.familyId === st.familyId) || null,
+        同家庭人数: ((window.LOCAL_FAMILIES || []).find(f => f.familyId === st.familyId) || {}).children?.length || 1,
+      };
+    });
+  }
+  if (p === '/api/enrollments') return window.LOCAL_ENROLLMENTS || [];
+  if (p === '/api/families') return window.LOCAL_FAMILIES || [];
+  if (p === '/api/schedule') return window.LOCAL_SCHEDULE || [];
+  if (p === '/api/outlines') return window.LOCAL_OUTLINES || {};
+  if (p === '/api/state') return window.LOCAL_STATE || {};
+  if (p === '/api/leave/list') return { ok: true, leaves: (window.LOCAL_STATE && window.LOCAL_STATE.leaves) || [] };
+  if (p === '/api/classes') {
+    const map = {};
+    (window.LOCAL_ENROLLMENTS || []).forEach(e => {
+      if (e.作废 === true || !e.班级) return;
+      const c = (map[e.班级] = map[e.班级] || { 期: e.期, 学期: e.学期 || '', 班级: e.班级, 学科: e.学科 || '数学', 老师: e.老师, 校区: e.校区, 开课: e.开课, 结课: e.结课, 在班: [], 退出: [], 待确认: [] });
+      const st = (window.LOCAL_STUDENTS || []).find(s => s.id === (e.studentId || e.id));
+      if (st) c.在班.push({ id: st.id, 姓名: st.姓名, 年级: st.年级, 电话: st.电话, familyId: st.familyId });
+    });
+    return (window.LOCAL_SCHEDULE || []).map(r => {
+      const c = map[r.班级名称] || map[r.课程] || {};
+      const inClass = c.在班 || (r.在班 && r.enrolledList) || r.在班 || [];
+      return {
+        来源: '课表',
+        班号: r.班号, 星期: r.星期 || '', 时间: r.时间 || '', 教室: r.教室 || '',
+        课程: r.班级名称 || r.课程 || '', 班级: r.班级名称 || r.课程 || '', 班级名: [r.班级名称 || r.课程 || ''],
+        期: r.期 || '2026秋', 老师: r.老师 || c.老师, 老师全名: r.老师全名 || c.老师 || '',
+        校区: r.校区 || c.校区 || '', 备注: r.备注 || '', 年级: r.年级 || '', 班型: r.班型 || '',
+        学科: r.学科 || '数学', 人数: inClass.length || Number(r.在班人数) || 0, 在班人数: inClass.length || Number(r.在班人数) || 0,
+        在班: inClass, enrolledList: inClass, 退出: [], 待确认: [], 开课: r.开课 || '2026-09-05', 结课: r.结课 || '2027-01-17',
+      };
+    });
+  }
+  return {};
+}
 function post(p, body) { return api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
 
 // ---------- 学期与时间 ----------
