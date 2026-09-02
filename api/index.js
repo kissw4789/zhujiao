@@ -1,4 +1,4 @@
-// Vercel Serverless 入口（支持本地 JSON 兜底 + 云端 KV/持久化接口）
+// Vercel Serverless 全量 API 路由与数据分发入口
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -11,6 +11,7 @@ let families = readJ('families.json', []);
 let enrollments = readJ('enrollments.json', []);
 let orders = readJ('orders.json', []);
 let schedule = readJ('schedule.json', []);
+let outlines = readJ('outlines.json', {});
 let state = readJ('state.json', { renew: {}, progress: {}, inboxLog: [], opLog: [], seq: {}, leaves: [] });
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -88,7 +89,6 @@ module.exports = async (req, res) => {
   const p = u.pathname;
   const now = today();
 
-  // Index maps
   let enrById = {};
   enrollments.forEach(e => { if (e.作废 !== true) (enrById[e.studentId || e.id] = enrById[e.studentId || e.id] || []).push(e); });
   let familiesById = {};
@@ -136,8 +136,43 @@ module.exports = async (req, res) => {
     return send(res, 200, list);
   }
 
+  if (p === '/api/enrollments') {
+    return send(res, 200, enrollments.map(e => ({ ...e, 状态: enrStatus(e, now) })));
+  }
+
+  if (p === '/api/families') {
+    return send(res, 200, families.map(f => ({
+      ...f,
+      孩子: (f.children || []).map(id => students.find(s => s.id === id)).filter(Boolean)
+    })));
+  }
+
   if (p === '/api/schedule') {
     return send(res, 200, schedule);
+  }
+
+  if (p === '/api/outlines') {
+    return send(res, 200, outlines);
+  }
+
+  if (p === '/api/state') {
+    return send(res, 200, state);
+  }
+
+  if (p === '/api/oplog') {
+    return send(res, 200, state.opLog || []);
+  }
+
+  if (p === '/api/inbox') {
+    return send(res, 200, { 待处理: [], 台账: state.inboxLog || [] });
+  }
+
+  if (p === '/api/reports') {
+    return send(res, 200, []);
+  }
+
+  if (p === '/api/sync/status') {
+    return send(res, 200, { running: false, stage: '正常', startedAt: '', finishedAt: '', ok: true, error: '', report: null });
   }
 
   if (p === '/api/classes') {
@@ -196,7 +231,7 @@ module.exports = async (req, res) => {
     return send(res, 200, { ok: true, leaves: state.leaves || [] });
   }
 
-  if (req.method === 'POST' && p === '/api/leave/add') {
+  if (req.method === 'POST' && p === '/api/leave/record') {
     const b = await parseBody(req);
     state.leaves = state.leaves || [];
     const lid = 'L' + String(state.leaves.length + 1).padStart(4, '0');
