@@ -4,7 +4,9 @@
   "description": "苏E好学 助教工作台",
   "main": "api/index.js",
   "scripts": {
-    "start": "node api/index.js"
+    "start": "node api/index.js",
+    "prepare:import": "python tools/prepare_supabase_import.py --out-dir ../_archive/2026-09-03_supabase_migration",
+    "upload:import": "node tools/upload_to_supabase.js ../_archive/2026-09-03_supabase_migration"
   },
   "dependencies": {}
 }
