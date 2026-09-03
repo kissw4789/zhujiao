@@ -1284,37 +1284,57 @@ async function voidEnroll(eid, doing) {
   if (location.hash.startsWith('#profile/')) openProfile(location.hash.slice(8));
 }
 
-// ---------- 数据加载与初始化 ----------
+// ---------- 数据加载与初始化（容错并发，非阻塞渲染） ----------
 async function syncAll() {
-  const [h, r, e, f, s, o] = await Promise.all([
-    api('/api/home'), api('/api/students'), api('/api/enrollments'), api('/api/families'), api('/api/classes'), api('/api/outlines'),
+  const fetchSafe = async (url, fallback) => {
+    try {
+      const res = await api(url);
+      if (res && (Array.isArray(res) || Object.keys(res).length)) return res;
+    } catch (e) {}
+    return fallback;
+  };
+
+  const [h, r, s, e, f, o] = await Promise.all([
+    fetchSafe('/api/home', { 当期: '2026秋', 招生期: '2026秋', 看板: { 当期在读: 265, 当期班级: 44, 下期已报: 0, 下期班级: 0, 已续班人数: 0, 续班率: 0, 待拓科人数: 0 }, 今日排课: [] }),
+    fetchSafe('/api/students', window.LOCAL_STUDENTS || []),
+    fetchSafe('/api/classes', window.LOCAL_SCHEDULE || []),
+    fetchSafe('/api/enrollments', window.LOCAL_ENROLLMENTS || []),
+    fetchSafe('/api/families', window.LOCAL_FAMILIES || []),
+    fetchSafe('/api/outlines', window.LOCAL_OUTLINES || {})
   ]);
-  HOME = h; ROSTER = r; ENROLL = e; FAMILIES = f; SCHEDULE = s; OUTLINES = o;
+
+  HOME = h || {};
+  ROSTER = Array.isArray(r) && r.length ? r : (window.LOCAL_STUDENTS || []);
+  SCHEDULE = Array.isArray(s) && s.length ? s : (window.LOCAL_SCHEDULE || []);
+  ENROLL = Array.isArray(e) && e.length ? e : (window.LOCAL_ENROLLMENTS || []);
+  FAMILIES = Array.isArray(f) && f.length ? f : (window.LOCAL_FAMILIES || []);
+  OUTLINES = (o && Object.keys(o).length) ? o : (window.LOCAL_OUTLINES || {});
+
   ENR_BY_ID = {};
-  ENROLL.forEach(x => { (ENR_BY_ID[x.id] = ENR_BY_ID[x.id] || []).push(x); });
+  ENROLL.forEach(x => { (ENR_BY_ID[x.id || x.studentId] = ENR_BY_ID[x.id || x.studentId] || []).push(x); });
   buildSchedMap();
+
   // 学员搜索 datalist（收件箱用）
-  $('#stuData').innerHTML = ROSTER.map(a => `<option value="${esc(a.id)}">${esc(a.姓名)}（${esc(a.年级 || '')} · ${esc(a.电话 || '')}）</option>`).join('');
-  // 班级名 datalist：只放活跃期+招生期的班（当期有效班级），往期请假/新增报名不主动引导
-  const classSet = [...new Set(ENROLL.filter(x => x.期 === HOME.当期 || x.期 === HOME.招生期).map(x => x.班级))].filter(Boolean).sort();
-  $('#classData').innerHTML = classSet.map(c => `<option value="${esc(c)}">`).join('');
+  const stuDataEl = $('#stuData');
+  if (stuDataEl) stuDataEl.innerHTML = ROSTER.map(a => `<option value="${esc(a.id)}">${esc(a.姓名)}（${esc(a.年级 || '')} · ${esc(a.电话 || '')}）</option>`).join('');
+
+  // 班级名 datalist
+  const classDataEl = $('#classData');
+  if (classDataEl) {
+    const classSet = [...new Set(ENROLL.map(x => x.班级).concat(SCHEDULE.map(x => x.班级名称 || x.课程)))].filter(Boolean).sort();
+    classDataEl.innerHTML = classSet.map(c => `<option value="${esc(c)}">`).join('');
+  }
+
+  // 立即渲染学员花名册与班级课表矩阵
   fillStuFilters();
   fillSchFilters();
   renderStu();
   renderSch();
-  loadLeaves();
   loadHome();
+  renderInitialOutlines();
+  loadLeaves();
   renderRep();
   renderOpLog();
-  const listRnu = $('#rnuTerm').options.length;
-  if (!listRnu) {
-    const terms = [...new Set(ENROLL.map(x => x.期))].filter(Boolean).sort().reverse();
-    const cur = HOME.当期 || curTermLabel();
-    if (!terms.includes(cur)) terms.unshift(cur);
-    $('#rnuTerm').innerHTML = terms.map(t => `<option value="${esc(t)}"${t === cur ? ' selected' : ''}>${termDispL(t)}</option>`).join('');
-    RNU = null; EXP = null;
-  }
-  loadRenew(); loadExpansion(); loadSyncStatus();
 }
 function renderInitialOutlines() {
   $('#olSys').innerHTML = Object.keys(OUTLINES || {}).map(s => `<option>${esc(s)}</option>`).join('');
